@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>X文章→黒画像（16:9 / 細ゴシック）</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; background:#0b0b0b; color:#fff; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 18px; margin: 8px 0 12px; font-weight: 800; }
+    .hint { font-size: 12px; opacity:.8; line-height:1.6; margin-bottom: 12px; }
+    textarea {
+      width: 100%; min-height: 160px; resize: vertical;
+      border-radius: 14px; border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06); color:#fff;
+      padding: 12px; font-size: 14px; line-height: 1.6;
+      outline: none;
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+    .card {
+      border-radius: 16px; border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.05); padding: 12px;
+    }
+    .row { display:flex; gap:10px; flex-wrap: wrap; align-items:center; }
+    label { display:flex; gap:8px; align-items:center; font-size: 12px; opacity:.9; }
+    input[type="number"], select {
+      width: 110px; padding: 8px 10px; border-radius: 12px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(0,0,0,.35); color:#fff; outline:none;
+    }
+    input[type="checkbox"] { transform: scale(1.05); }
+    button {
+      padding: 10px 12px; border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.16);
+      background: rgba(0,0,0,.45); color:#fff;
+      font-weight: 800; cursor:pointer;
+    }
+    button:hover { background: rgba(0,0,0,.62); }
+    .actions { display:flex; gap:10px; flex-wrap: wrap; margin-top: 12px; }
+    canvas { width: 100%; height: auto; border-radius: 16px; background:#000; }
+    .small { font-size: 12px; opacity:.75; margin-top:8px; line-height: 1.6; }
+    @media (max-width: 860px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>X文章 → 黒背景画像（16:9 / 細ゴシック）</h1>
+    <div class="hint">
+      使い方：Xの投稿作成欄で文章を作る → 全文コピー → ここに貼る → 「描画」→「PNG保存」<br>
+      ※改行・空行はそのまま反映されます（見た目の改行を尊重し、行が長い時だけ自動で折り返します）。
+    </div>
+
+    <textarea id="text" placeholder="ここにXの文章を貼り付け（改行OK）"></textarea>
+
+    <div class="grid">
+      <div class="card">
+        <div class="row">
+          <label>サイズ
+            <select id="preset">
+              <option value="1920x1080" selected>16:9（1920×1080）</option>
+              <option value="1280x720">16:9（1280×720）</option>
+              <option value="1080x1350">4:5（1080×1350）</option>
+              <option value="1080x1920">9:16（1080×1920）</option>
+            </select>
+          </label>
+          <label>余白(px) <input id="pad" type="number" value="140" min="0" max="400"></label>
+          <label>文字(px) <input id="fs" type="number" value="64" min="18" max="140"></label>
+          <label>行間 <input id="lh" type="number" value="1.40" step="0.05" min="1.0" max="2.2"></label>
+        </div>
+
+        <div class="row" style="margin-top:10px;">
+          <label>太さ
+            <select id="fw">
+              <option value="200">200（極細）</option>
+              <option value="300" selected>300（細い）</option>
+              <option value="400">400（標準）</option>
+              <option value="500">500（やや太）</option>
+            </select>
+          </label>
+          <label><input id="center" type="checkbox" checked> 横センター寄せ</label>
+          <label><input id="vcenter" type="checkbox" checked> 縦センター寄せ</label>
+          <label><input id="stroke" type="checkbox"> 縁取り（白文字を強調）</label>
+        </div>
+
+        <div class="actions">
+          <button id="render">🖌️ 描画</button>
+          <button id="download">⬇️ PNG保存</button>
+          <button id="clear">🧹 クリア</button>
+        </div>
+
+        <div class="small">
+          推奨：細字は縁取りOFFが上品。読みにくい時だけON。<br>
+          絵文字は環境によって色付きが出ない場合があります（OS/ブラウザ依存）。
+        </div>
+      </div>
+
+      <div class="card">
+        <canvas id="c"></canvas>
+        <div class="small">プレビュー（そのままPNGになります）</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  const fontFamily = `
+    "Noto Sans JP",
+    "Hiragino Sans",
+    "Yu Gothic",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif
+  `.trim();
+
+  function applyPreset() {
+    const v = $('preset').value;
+    const [w,h] = v.split('x').map(Number);
+    $('c').width = w; $('c').height = h;
+
+    // プリセットごとの“いい感じ”初期値
+    if (v === '1920x1080') { $('pad').value = 140; $('fs').value = 64; $('lh').value = 1.40; }
+    if (v === '1280x720')  { $('pad').value = 90;  $('fs').value = 44; $('lh').value = 1.40; }
+    if (v === '1080x1350') { $('pad').value = 90;  $('fs').value = 56; $('lh').value = 1.35; }
+    if (v === '1080x1920') { $('pad').value = 100; $('fs').value = 58; $('lh').value = 1.35; }
+  }
+
+  function wrapLineByChars(ctx, line, maxWidth) {
+    if (line === '') return ['']; // 空行維持
+    const out = [];
+    let buf = '';
+    for (const ch of [...line]) {
+      const test = buf + ch;
+      if (ctx.measureText(test).width > maxWidth && buf.length > 0) {
+        out.push(buf);
+        buf = ch;
+      } else {
+        buf = test;
+      }
+    }
+    if (buf.length > 0) out.push(buf);
+    return out;
+  }
+
+  function buildLines(ctx, text, maxWidth) {
+    const raw = (text || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const rawLines = raw.split('\n'); // 改行を尊重
+    const lines = [];
+    for (const l of rawLines) lines.push(...wrapLineByChars(ctx, l, maxWidth));
+    return lines;
+  }
+
+  function render() {
+    const canvas = $('c');
+    const ctx = canvas.getContext('2d');
+
+    const pad = Number($('pad').value);
+    const fs  = Number($('fs').value);
+    const lh  = Number($('lh').value);
+    const fw  = $('fw').value;
+    const center = $('center').checked;
+    const vcenter = $('vcenter').checked;
+    const stroke = $('stroke').checked;
+
+    // 背景
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // フォント
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#fff';
+    ctx.font = `${fw} ${fs}px ${fontFamily}`;
+
+    const maxWidth = canvas.width - pad * 2;
+    const lines = buildLines(ctx, $('text').value, maxWidth);
+
+    const linePx = fs * lh;
+    const blockH = lines.length * linePx;
+
+    let y = pad;
+    if (vcenter) y = Math.max(pad, (canvas.height - blockH) / 2);
+
+    for (const line of lines) {
+      let x = pad;
+      if (center) {
+        const w = ctx.measureText(line).width;
+        x = Math.max(pad, (canvas.width - w) / 2);
+      }
+
+      if (stroke && line) {
+        ctx.lineWidth = Math.max(3, fs * 0.08);
+        ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+        ctx.strokeText(line, x, y);
+      }
+
+      ctx.fillText(line, x, y);
+      y += linePx;
+
+      if (y > canvas.height - pad) break; // はみ出し防止（必要なら自動縮小も追加可能）
+    }
+  }
+
+  function downloadPng() {
+    render();
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+    a.download = `x_black_16x9_${stamp}.png`;
+    a.href = $('c').toDataURL('image/png');
+    a.click();
+  }
+
+  $('preset').addEventListener('change', () => { applyPreset(); render(); });
+  $('render').addEventListener('click', render);
+  $('download').addEventListener('click', downloadPng);
+  $('clear').addEventListener('click', () => { $('text').value = ''; render(); });
+
+  // 初期化
+  applyPreset();
+  render();
+})();
+</script>
+</body>
+</html>
